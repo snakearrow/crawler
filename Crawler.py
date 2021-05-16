@@ -2,7 +2,7 @@ import urllib.request, urllib.error, urllib.parse
 from urllib.parse import urlparse, urljoin
 from urllib.request import Request, urlopen
 from bs4 import BeautifulSoup
-from difflib import SequenceMatcher
+from difflib import SequenceMatcher, get_close_matches
 import random
 import unicodedata
 import re
@@ -34,7 +34,9 @@ class Crawler:
         self._max_stay_on_site = 100
         self._current_on_site = 0
         self._previous_domain = None
-        self._max_urls_in_list = 1000
+        self._max_urls_in_list = 500
+        self._max_new_urls_per_page = 100
+        self._aggressive_pruning = True
         self._indexer = Indexer("localhost", 9200)
         
     def crawl(self, root_url: str, depth=0):
@@ -106,13 +108,17 @@ class Crawler:
                     if self.get_domain(url) != self.get_domain(l):
                         self._url_list.append(l)
                         cnt += 1
+                if cnt >= self._max_new_urls_per_page:
+                    break
                 
             log.info(f"URLs found: {len(self._url_list)} ({cnt} new)")
         
             # check whether to clean URL list so it doesn't get too big
             if len(self._url_list) >= self._max_urls_in_list:
+                len_before = len(self._url_list)
                 self.purge_url_list(self.get_domain(url))
-                log.info("Purged URL list")
+                len_after = len(self._url_list)
+                log.info(f"Purged URL list (removed {len_before - len_after} entries)")
                 current_idx = 0
 
         
@@ -124,13 +130,35 @@ class Crawler:
         return res.scheme + "://" + res.netloc
         
     def purge_url_list(self, current_domain: str):
-        # cleans the URL list by randomly selecting N elements and filtering domains
+        """
+            cleans the URL list by removing duplicates,
+            filtering domains, 
+            filtering equal URLs,
+            and by randomly selecting N elements
+        """
+        self._url_list = list(set(self._url_list))
+        
         urls = []
+        domains = []
         for url in self._url_list:
-            if self.get_domain(url) == current_domain:
+            domain = self.get_domain(url)
+            if domain == current_domain:
                 continue
             urls.append(url)
+            domains.append(domain)
+        
+        if self._aggressive_pruning:
+            # only filter equal URLs if aggressive pruning is active
+            non_equal_urls = []
+            for i in range(len(urls)):
+                close_matches = get_close_matches(domains[i], domains, cutoff=0.7)
+                if len(close_matches) >= 4:
+                    continue
+                
+                non_equal_urls.append(urls[i])
             
+            urls = non_equal_urls
+        
         if len(urls) > self._max_urls_in_list:
             self._url_list = random.sample(urls, self._max_urls_in_list)
         else:
