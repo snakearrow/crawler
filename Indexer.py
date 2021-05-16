@@ -32,6 +32,7 @@ class Indexer:
             raise RuntimeException("Please specify user and password for elasticsearch connection")
             
         self._es = Elasticsearch([url])
+        
         if not self._es.indices.exists(index=self._index_name):
             mapping = {
                 "mappings": {

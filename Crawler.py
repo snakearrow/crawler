@@ -3,6 +3,8 @@ from urllib.parse import urlparse, urljoin
 from urllib.request import Request, urlopen
 from bs4 import BeautifulSoup
 from difflib import SequenceMatcher
+import random
+import unicodedata
 import re
 import sys
 import signal
@@ -11,6 +13,7 @@ import time
 import html
 
 from keyword_filter import get_keywords
+from url_filter import is_url_filtered
 from Indexer import Indexer
 from Log import log
 
@@ -26,55 +29,112 @@ class Crawler:
 
     def __init__(self):
         self._max_url_length = 100
-        self._max_depth = 5
-        self._current_depth = 0
-        self._url_list = [] # TODO: init from elastic ?
+        self._url_list = []
         self._title_list = []
+        self._max_stay_on_site = 100
+        self._current_on_site = 0
+        self._previous_domain = None
+        self._max_urls_in_list = 1000
         self._indexer = Indexer("localhost", 9200)
         
     def crawl(self, root_url: str, depth=0):
-        try:
-            if not self.is_html(root_url):
-                return
+        self._url_list.append(root_url)
+        current_idx = 0
+        
+        while current_idx < len(self._url_list):
+            url = self._url_list[current_idx]
+            print(80*"-")
+            log.info(f"Processing {url}")
+            current_idx += 1
             
-            req = Request(root_url, headers=self._header)
-            response = urlopen(req, timeout=3)
-            content = response.read().decode(errors='ignore')
-        except Exception as e:
-            log.error(e)
-            return
-        
-        title = self.get_title(content)
-        if title:
-            title = title.strip()
-            if self.is_english(title):
-                keywords = get_keywords(content)
-                self._indexer.save(root_url, title, keywords)
-            else:
-                log.info(f"NOT ENGLISH: {title}")
-    
-        soup = BeautifulSoup(content, features="lxml")
-        to_crawl = []
-        for link in soup.findAll('a'):
-            l = link.get('href')
-            if l and (l.startswith("http") or l[0] == '/'):
-                if l[0] == '/':
-                    l = urljoin(root_url, l)
-                    
-                if not self._indexer.url_already_indexed(l) and l not in self._url_list:
-                    self._url_list.append(l)
+            if is_url_filtered(url):
+                log.info("URL is filtered, skipping")
+                continue
                 
-        log.info(f"URLs found: {len(self._url_list)}")
-        self._current_depth += 1
-        if self._current_depth >= self._max_depth:
-            self._current_depth -= 1
-            return
+            if len(url) >= self._max_url_length:
+                log.info(f"URL is too long (max_length={self._max_url_length}), skipping")
+                continue
         
+            try:
+                if not self.is_html(url):
+                    log.info("URL is not HTML, skipping")
+                    continue
+                
+                req = Request(url, headers=self._header)
+                response = urlopen(req, timeout=3)
+                content = response.read().decode(errors='ignore')
+            except Exception as e:
+                log.error(e)
+                log.info("An error occurred while opening URL, skipping")
+                continue
+        
+            # detect if url is an entirely new domain and reset counter
+            if self.get_domain(url) != self._previous_domain:
+                self._current_on_site = 0
+            else:
+                self._current_on_site += 1
+            
+            self._previous_domain = self.get_domain(url)
+        
+            # get title and check whether it's latin
+            title = self.get_title(content)
+            if title:
+                title = title.strip()
+                if self.is_latin(title):
+                    keywords = get_keywords(content)
+                    self._indexer.save(url, title, keywords)
+                else:
+                    log.info(f"Skipping because: Title not latin ('{title}')")
+                    continue
+    
+            # extract links from html
+            soup = BeautifulSoup(content, features="lxml")
+            to_crawl = []
+            cnt = 0
+            for link in soup.findAll('a'):
+                l = link.get('href')
+                if l and (l.startswith("http") or l[0] == '/'):
+                    if l[0] == '/':
+                        l = urljoin(url, l)
+                        
+                    # discard too many links on same domain to prevent cycles
+                    if self._current_on_site <= self._max_stay_on_site:
+                        if not self._indexer.url_already_indexed(l) and l not in self._url_list:
+                            self._url_list.append(l)
+                            cnt += 1
+                    # but make sure to append 'foreign' URLs in every case
+                    if self.get_domain(url) != self.get_domain(l):
+                        self._url_list.append(l)
+                        cnt += 1
+                
+            log.info(f"URLs found: {len(self._url_list)} ({cnt} new)")
+        
+            # check whether to clean URL list so it doesn't get too big
+            if len(self._url_list) >= self._max_urls_in_list:
+                self.purge_url_list(self.get_domain(url))
+                log.info("Purged URL list")
+                current_idx = 0
+
+        
+    @staticmethod
+    def get_domain(url: str, include_http=True):
+        res = urlparse(url)
+        if not include_http:
+            return res.netloc
+        return res.scheme + "://" + res.netloc
+        
+    def purge_url_list(self, current_domain: str):
+        # cleans the URL list by randomly selecting N elements and filtering domains
+        urls = []
         for url in self._url_list:
-            self.crawl(url, self._current_depth)
-        
-    def get_urls(self, document: str):
-        pass
+            if self.get_domain(url) == current_domain:
+                continue
+            urls.append(url)
+            
+        if len(urls) > self._max_urls_in_list:
+            self._url_list = random.sample(urls, self._max_urls_in_list)
+        else:
+            self._url_list = urls
         
     def get_title(self, document: str):
         start = document.find("<title>")
@@ -112,14 +172,12 @@ class Crawler:
         return False
         
     @staticmethod
-    def is_english(s: str):
+    def is_latin(s: str):
         s = re.sub(u"\u2013", "-", s)
-        charset = "abcdefghijklmnopqrstuvwxyz1234567890äüöß?!\"§$%&/()=#+*_-€@|;:.,^°~][}{ "
         for c in s:
-            if c.lower() not in charset:
-                log.debug(f"character not known: {c.lower()} {ord(c.lower())}")
-                return False
-            
+            if c.isalpha():
+                if not "LATIN" in unicodedata.name(c):
+                    return False
         return True
         
     def get_file_type(self, url: str):
