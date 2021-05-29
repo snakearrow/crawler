@@ -2,33 +2,63 @@
     <head>
         <meta charset="utf-8">
         <link rel= "stylesheet" type= "text/css" href= "{{ url_for('static',filename='styles/style.css') }}">
-        <title>Domi's Suche</title>
+        <title>Domi's Search</title>
     </head>
     
     <body>
         <center>
-        <h1>Domi's Suche</h1>
+        <h1>Domi's Search</h1>
         <form method="POST">
             <input name="text">
-            <input type="submit" value="Suche">
+            <input type="submit" value="Search">
         </form>
         
-        <div max-width="75%">
+        {% set page = 0 %}
+        <div>
             {% if data is defined %}
-                <h3>Search results for: {{ keyword }} </h3>
-                <p>Found {{ n_results }} results</p>
-                {% for entry in data %}
-                <div style="border: 1px solid black; margin-bottom: 7px; border-radius: 10px;">
-                    <p>
-                    <b>{{ entry._title }}</b><br>
-                    <a href="{{ entry._url }}">{{ entry._url }}</a><br>
-                    Rating: {{ entry._rating }}<br>
-                    Keywords: {{ entry._keywords }}<br>
-                    {{ entry._ts }}
-                    </p>
-                </div>
+                <h3>Search results for: {{ data._keyword }} </h3>
+                <p>Found {{ n_results }} results in {{ data._search_time }}s</p>
+                {% for i in range(0, n_results, 10) %}
+                    {% for j in range(0, 10) if data._results[i+j] %}
+                        {% set entry = data._results[i+j] %}
+                        {% set block_id = (i/10)|int %}
+                        {% if i == 0 %}
+                        <div class="result" name="block_{{ block_id }}">
+                        {% else %}
+                        <div class="result" style="display:none;" name="block_{{ block_id }}">
+                        {% endif %}
+                            <p>
+                            <b>{{ entry._title }}</b><br>
+                            <a href="{{ entry._url }}">{{ entry._url }}</a><br>
+                            Rating: {{ entry._rating }}<br>
+                            Keywords: {{ entry._keywords }}<br>
+                            {{ entry._ts }}
+                            </p>
+                        </div>
+                    {% endfor %}
                 {% endfor %}
             {% endif %}
         </div>
+        
+        <script>
+            var block_id = 0;
+            window.onscroll = function() {
+                var scrollHeight, totalHeight;
+                scrollHeight = document.body.scrollHeight;
+                totalHeight = window.scrollY + window.innerHeight;
+
+                if(totalHeight >= scrollHeight)
+                {
+                    block_id++;
+                    // end of page, show new data if possible
+                    var blocks = document.getElementsByName("block_"+block_id);
+                    if (blocks) {
+                        for (var i = 0; i < blocks.length; i++) {
+                            blocks[i].style.display = "block";
+                        }
+                    }
+                }
+            }
+        </script>
     </body>
 </html>

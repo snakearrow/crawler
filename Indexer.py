@@ -4,22 +4,6 @@ import hashlib
 from Log import log
 
 
-'''
-search:
-{
-	"query": {
-		"query_string": {
-			"query": "*test*",
-			"fields": [
-				"title^2",
-				"url^4",
-				"keywords"
-			]
-		}
-	}
-}
-'''
-
 class Indexer:
 
     def __init__(self, hostname: str, port: str, user: str = None, password: str = None, index_name = "crawler_main"):
