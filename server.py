@@ -52,9 +52,11 @@ class Server:
     def search(self, _keywords: list):
         keywords = []
         for word in _keywords:
+            keywords.append(word)
             keywords.append('*' + word + '*')
         
         keywords = ' '.join(keywords)
+        print(keywords)
         query = {
             "query": {
                 "query_string": {
