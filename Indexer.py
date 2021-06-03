@@ -35,7 +35,7 @@ class Indexer:
             count = res[0]['count']
             log.info(f"Index {self._index_name} already contains {count} entries")
             
-    def save(self, url: str, title: str, keywords):
+    def save(self, url: str, title: str, keywords, language: str):
         # skip already indexed urls
         if self.url_already_indexed(url):
             log.info(f"URL {url} already indexed, skipping")
@@ -46,13 +46,14 @@ class Indexer:
             'url': url,
             'title': title,
             'keywords': keywords,
+            'language': language,
             'timestamp': datetime.now(),
         }
         res = self._es.index(index=self._index_name, body=doc)
         if res['result'] != "created":
             log.warning(f"Could not index {url}, result was: {res['result']}")
         else:
-            log.info(f"Indexed {url}: {title}")
+            log.info(f"Indexed {url}: {title} (language='{language}')")
             
     def url_already_indexed(self, url: str):
         res = self._es.search(index=self._index_name, body={"query": {"constant_score": {"filter": {"term": {"url_hash": self.to_md5(url)}}}}})

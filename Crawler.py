@@ -3,6 +3,7 @@ from urllib.parse import urlparse, urljoin
 from urllib.request import Request, urlopen
 from bs4 import BeautifulSoup
 from difflib import SequenceMatcher, get_close_matches
+from langid import langid
 import random
 import unicodedata
 import re
@@ -37,6 +38,7 @@ class Crawler:
         self._max_urls_in_list = 500
         self._max_new_urls_per_page = 100
         self._aggressive_pruning = True
+        self._language_ident = langid.LanguageIdentifier.from_modelstring(langid.model, norm_probs=True)
         self._indexer = Indexer("localhost", 9200)
         
     def crawl(self, root_url: str, depth=0):
@@ -84,7 +86,10 @@ class Crawler:
                 title = title.strip()
                 if self.is_latin(title):
                     keywords = get_keywords(content)
-                    self._indexer.save(url, title, keywords)
+                    language = self.get_language(keywords)
+                    if language is None:
+                        language = "n/a"
+                    self._indexer.save(url, title, keywords, language)
                 else:
                     log.info(f"Skipping because: Title not latin ('{title}')")
                     continue
@@ -128,6 +133,13 @@ class Crawler:
         if not include_http:
             return res.netloc
         return res.scheme + "://" + res.netloc
+        
+    def get_language(self, keywords: list[str], max_keywords: int = 16):
+        sample = ' '.join(keywords[:max_keywords])
+        language, confidence = self._language_ident.classify(sample)
+        if confidence < 0.75:
+            return None
+        return language      
         
     def purge_url_list(self, current_domain: str):
         """

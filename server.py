@@ -13,12 +13,11 @@ app = Flask(__name__)
 
 class SingleResult:
 
-    def __init__(self, title, url, ts, keywords, rating: float = 1.0):
+    def __init__(self, title, url, ts, keywords):
         self._title = title
         self._url = url
         self._ts = ts
         self._keywords = keywords
-        self._rating = rating
         
     def __str__(self):
         return f"SingleResult title='{self._title}'   url='{self._url}'"
@@ -56,12 +55,18 @@ class Server:
             keywords.append('*' + word + '*')
         
         keywords = ' '.join(keywords)
-        print(keywords)
         query = {
             "query": {
                 "query_string": {
                     "query": keywords,
                     "fields": ["title^2", "url^4", "keywords"]
+                }
+            },
+            "sort": {
+                "_script": {
+                    "type": "number",
+                    "script": "doc['url.keyword'].value.length()",
+                    "order": "asc"
                 }
             },
             "size": str(MAX_RESULTS)
@@ -72,12 +77,11 @@ class Server:
         
         result = []
         for hit in hits:
-            rating = float(hit['_score'])
             url = hit['_source']['url']
             title = hit['_source']['title']
             ts = hit['_source']['timestamp']
             kw = hit['_source']['keywords']
-            result.append(SingleResult(title, url, ts, kw, rating))
+            result.append(SingleResult(title, url, ts, kw))
         
         return SearchResult(result, search_time/1000.0, ' '.join(_keywords))
         
