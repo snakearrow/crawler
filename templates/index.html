@@ -9,6 +9,16 @@
         <center>
         <h1>Domi's Search</h1>
         <form method="POST">
+            <label for="language">Language:</label>
+            <select name="language" id="language">
+            <option value="none">all</option>
+            <option value="en">English</option>
+            <option value="de">Deutsch</option>
+            <option value="fr">Français</option>
+            <option value="nl">Nederlands</option>
+            <option value="es">Español</option>
+            </select>
+            <br>
             <input type="text" name="text" autofocus>
             <input type="submit" value="Search">
         </form>

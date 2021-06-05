@@ -48,7 +48,7 @@ class Server:
         else:
             print(f"Elastisearch connection (index {index_name}) ok")
         
-    def search(self, _keywords: list):
+    def search(self, _keywords: list, language: str = "en"):
         keywords = []
         for word in _keywords:
             keywords.append(word)
@@ -56,20 +56,34 @@ class Server:
         
         keywords = ' '.join(keywords)
         query = {
-            "query": {
-                "query_string": {
-                    "query": keywords,
-                    "fields": ["title^2", "url^4", "keywords"]
-                }
-            },
-            "sort": {
-                "_script": {
-                    "type": "number",
-                    "script": "doc['url.keyword'].value.length()",
-                    "order": "asc"
-                }
-            },
-            "size": str(MAX_RESULTS)
+	        "query": {
+		        "bool": {
+			        "must": [
+				        {
+					        "query_string": {
+						        "query": keywords,
+						        "fields": [
+							        "url^4",
+							        "keywords",
+							        "title^2"
+						        ]
+					        }
+				        },
+				        {
+					        "wildcard": {
+						        "language": language
+					        }
+				        }
+			        ]
+		        }
+	        },
+	        "sort": {
+		        "_script": {
+			        "type": "number",
+			        "script": "doc['url.keyword'].value.length()",
+			        "order": "asc"
+		        }
+	        }
         }
         res = self._es.search(index=self._index_name, body=query)
         search_time = int(res['took'])
@@ -95,7 +109,10 @@ def search():
     result = None
     if request.method == 'POST':
         keyword = request.form['text']
-        result = server.search(keyword.split())
+        language = request.form['language']
+        if language == "none":
+            language = "*"
+        result = server.search(keyword.split(), language)
         
     return render_template('index.html', data=result, n_results=len(result._results))
 
