@@ -1,0 +1,5 @@
+langid
+html2text
+elasticsearch
+flask
+bs4
